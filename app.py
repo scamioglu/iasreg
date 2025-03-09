@@ -42,50 +42,61 @@ def get_db():
 
 # Veritabanı tablolarını oluşturma fonksiyonu
 def init_db():
-    conn = get_db()
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL,
-            stage_access INTEGER
-        );  -- Kullanıcılar tablosu
-        CREATE TABLE IF NOT EXISTS stages (
-            id INTEGER PRIMARY KEY,
-            stage_number INTEGER,
-            stage_name TEXT
-        );  -- Aşamalar tablosu
-        CREATE TABLE IF NOT EXISTS forms (
-            id INTEGER PRIMARY KEY,
-            stage_id INTEGER,
-            question TEXT NOT NULL,
-            type TEXT NOT NULL,
-            options TEXT,
-            allow_photo_upload BOOLEAN,
-            FOREIGN KEY (stage_id) REFERENCES stages(id)
-        );  -- Formlar tablosu
-        CREATE TABLE IF NOT EXISTS responses (
-            id INTEGER PRIMARY KEY,
-            form_id INTEGER,
-            parent_name TEXT NOT NULL,
-            answer TEXT,
-            file_url TEXT,
-            FOREIGN KEY (form_id) REFERENCES forms(id)
-        );  -- Yanıtlar tablosu
-        CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY,
-            user_id INTEGER,
-            action TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );  -- Günlük kaydı tablosu
-        -- Varsayılan admin kullanıcısı ekle
-        INSERT OR IGNORE INTO users (username, password, role, stage_access)
-        VALUES ('admin@example.com', 'admin123', 'admin', 0);
-    """)
-    conn.commit()  # Değişiklikleri kaydet
-    conn.close()
+    try:
+        conn = get_db()
+        print("Initializing database...")  # Hata ayıklama için log
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                role TEXT NOT NULL,
+                stage_access INTEGER
+            );  -- Kullanıcılar tablosu
+            CREATE TABLE IF NOT EXISTS stages (
+                id INTEGER PRIMARY KEY,
+                stage_number INTEGER,
+                stage_name TEXT
+            );  -- Aşamalar tablosu
+            CREATE TABLE IF NOT EXISTS forms (
+                id INTEGER PRIMARY KEY,
+                stage_id INTEGER,
+                question TEXT NOT NULL,
+                type TEXT NOT NULL,
+                options TEXT,
+                allow_photo_upload BOOLEAN,
+                FOREIGN KEY (stage_id) REFERENCES stages(id)
+            );  -- Formlar tablosu
+            CREATE TABLE IF NOT EXISTS responses (
+                id INTEGER PRIMARY KEY,
+                form_id INTEGER,
+                parent_name TEXT NOT NULL,
+                answer TEXT,
+                file_url TEXT,
+                FOREIGN KEY (form_id) REFERENCES forms(id)
+            );  -- Yanıtlar tablosu
+            CREATE TABLE IF NOT EXISTS logs (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER,
+                action TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );  -- Günlük kaydı tablosu
+            -- Varsayılan admin kullanıcısı ekle
+            INSERT OR IGNORE INTO users (username, password, role, stage_access)
+            VALUES ('admin@example.com', 'admin123', 'admin', 0);
+        """)
+        conn.commit()
+        print("Database initialized successfully.")  # Başarıyla tamamlandıysa log
+        # Tabloyu kontrol et
+        users_table = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';").fetchone()
+        if users_table:
+            print("Users table exists.")
+        else:
+            print("Users table does NOT exist!")
+        conn.close()
+    except Exception as e:
+        print(f"Error initializing database: {e}")  # Hata olursa log
 
 # Kullanıcı sınıfı tanımı (Flask-Login için)
 class User(UserMixin):
@@ -310,8 +321,9 @@ def submit_form():
     return redirect(url_for('staff'))
 
 # Veritabanını başlat (Render'da her deploy'da çalışır)
-with app.app_context():
-    init_db()
+print("Starting database initialization...")
+init_db()
+print("Database initialization completed.")
 
 # Uygulamayı Render portunda çalıştır
 if __name__ == "__main__":
