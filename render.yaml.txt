@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: iasreg
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: SECRET_KEY
+        value: supersecretkey123  # Render dashboard'ında bunu güncelleyebilirsin
+      - key: MAIL_SERVER
+        value: smtp.gmail.com
+      - key: MAIL_PORT
+        value: 587
+      - key: MAIL_USE_TLS
+        value: True
+      - key: MAIL_USERNAME
+        value: seninemail@gmail.com  # Render'da güncelle
+      - key: MAIL_PASSWORD
+        value: seninapppassword  # Render'da güncelle
+      - key: CLOUDINARY_CLOUD_NAME
+        value: cloudinary_cloud_name  # Render'da güncelle
+      - key: CLOUDINARY_API_KEY
+        value: cloudinary_api_key  # Render'da güncelle
+      - key: CLOUDINARY_API_SECRET
+        value: cloudinary_api_secret  # Render'da güncelle
+    regions:
+      - oregon
