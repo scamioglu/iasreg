@@ -10,31 +10,84 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 import io
 
+# Flask uygulamasını başlat
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'supersecretkey123')
-app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
-app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
-app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', 'your-email@gmail.com')
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', 'your-app-password')
-app.config['UPLOAD_FOLDER'] = 'uploads'
 
-# Cloudinary configuration
+# Çevresel değişkenlerden yapılandırma yükle (Render için)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'supersecretkey123')  # Güvenlik anahtarı
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')  # E-posta sunucusu
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))  # E-posta portu
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'  # TLS kullanımı
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', 'your-email@gmail.com')  # E-posta adresi
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', 'your-app-password')  # E-posta şifresi
+app.config['UPLOAD_FOLDER'] = 'uploads'  # Dosya yükleme klasörü
+
+# Cloudinary yapılandırması (dosya yükleme için)
 cloudinary.config(
     cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME', 'your-cloud-name'),
     api_key=os.getenv('CLOUDINARY_API_KEY', 'your-api-key'),
     api_secret=os.getenv('CLOUDINARY_API_SECRET', 'your-api-secret')
 )
 
+# Flask-Mail ve Flask-Login'i başlat
 mail = Mail(app)
 login_manager = LoginManager(app)
-login_manager.login_view = 'login'
+login_manager.login_view = 'login'  # Giriş yapmadan erişilemeyen sayfalar için yönlendirme
 
+# Veritabanı bağlantısı fonksiyonu
 def get_db():
-    conn = sqlite3.connect('database.db')
-    conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect('database.db')  # SQLite veritabanına bağlan
+    conn.row_factory = sqlite3.Row  # Satırları sözlük gibi döndür
     return conn
 
+# Veritabanı tablolarını oluşturma fonksiyonu
+def init_db():
+    conn = get_db()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL,
+            stage_access INTEGER
+        );  -- Kullanıcılar tablosu
+        CREATE TABLE IF NOT EXISTS stages (
+            id INTEGER PRIMARY KEY,
+            stage_number INTEGER,
+            stage_name TEXT
+        );  -- Aşamalar tablosu
+        CREATE TABLE IF NOT EXISTS forms (
+            id INTEGER PRIMARY KEY,
+            stage_id INTEGER,
+            question TEXT NOT NULL,
+            type TEXT NOT NULL,
+            options TEXT,
+            allow_photo_upload BOOLEAN,
+            FOREIGN KEY (stage_id) REFERENCES stages(id)
+        );  -- Formlar tablosu
+        CREATE TABLE IF NOT EXISTS responses (
+            id INTEGER PRIMARY KEY,
+            form_id INTEGER,
+            parent_name TEXT NOT NULL,
+            answer TEXT,
+            file_url TEXT,
+            FOREIGN KEY (form_id) REFERENCES forms(id)
+        );  -- Yanıtlar tablosu
+        CREATE TABLE IF NOT EXISTS logs (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER,
+            action TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );  -- Günlük kaydı tablosu
+        -- Varsayılan admin kullanıcısı ekle
+        INSERT OR IGNORE INTO users (username, password, role, stage_access)
+        VALUES ('admin@example.com', 'admin123', 'admin', 0);
+    """)
+    conn.commit()  # Değişiklikleri kaydet
+    conn.close()
+
+# Kullanıcı sınıfı tanımı (Flask-Login için)
 class User(UserMixin):
     def __init__(self, id, username, password, role, stage_access):
         self.id = id
@@ -43,6 +96,7 @@ class User(UserMixin):
         self.role = role
         self.stage_access = stage_access
 
+# Kullanıcı yükleme fonksiyonu (Flask-Login)
 @login_manager.user_loader
 def load_user(user_id):
     conn = get_db()
@@ -52,10 +106,12 @@ def load_user(user_id):
         return User(user['id'], user['username'], user['password'], user['role'], user['stage_access'])
     return None
 
+# Ana sayfa yönlendirmesi
 @app.route('/')
 def index():
     return redirect(url_for('login'))
 
+# Giriş sayfası
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -64,7 +120,7 @@ def login():
         conn = get_db()
         user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         conn.close()
-        if user and user['password'] == password:
+        if user and user['password'] == password:  # Şifre kontrolü (düz metin)
             user_obj = User(user['id'], user['username'], user['password'], user['role'], user['stage_access'])
             login_user(user_obj)
             conn = get_db()
@@ -77,6 +133,7 @@ def login():
         flash('Invalid username or password')
     return render_template('login.html')
 
+# Çıkış yapma
 @app.route('/logout')
 @login_required
 def logout():
@@ -87,6 +144,7 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
+# Admin paneli
 @app.route('/admin')
 @login_required
 def admin():
@@ -98,6 +156,7 @@ def admin():
     conn.close()
     return render_template('admin.html', stages=stages, logs=logs)
 
+# Aşama ekleme
 @app.route('/admin/add_stage', methods=['POST'])
 @login_required
 def add_stage():
@@ -116,6 +175,7 @@ def add_stage():
     flash("Stage added successfully")
     return redirect(url_for('admin'))
 
+# Ebeveyn listesi
 @app.route('/admin/parents')
 @login_required
 def admin_parents():
@@ -126,6 +186,7 @@ def admin_parents():
     conn.close()
     return render_template('admin_parents.html', responses=responses)
 
+# Ebeveyn detayları
 @app.route('/admin/parent/<parent_name>')
 @login_required
 def admin_parent_details(parent_name):
@@ -136,6 +197,7 @@ def admin_parent_details(parent_name):
     conn.close()
     return render_template('admin_parent_details.html', parent_name=parent_name, responses=responses)
 
+# Raporlar sayfası
 @app.route('/admin/reports')
 @login_required
 def admin_reports():
@@ -146,6 +208,7 @@ def admin_reports():
     conn.close()
     return render_template('admin_reports.html', responses=responses)
 
+# Rapor oluşturma
 @app.route('/admin/generate_report/<parent_name>')
 @login_required
 def generate_report(parent_name):
@@ -175,6 +238,7 @@ def generate_report(parent_name):
     buffer.seek(0)
     return send_file(buffer, as_attachment=True, download_name=f"{parent_name}_report.pdf")
 
+# Formlar sayfası
 @app.route('/admin/forms')
 @login_required
 def admin_forms():
@@ -186,6 +250,7 @@ def admin_forms():
     conn.close()
     return render_template('admin_forms.html', stages=stages, forms=forms)
 
+# Form ekleme
 @app.route('/admin/add_form', methods=['POST'])
 @login_required
 def add_form():
@@ -204,6 +269,7 @@ def add_form():
     flash("Form added successfully")
     return redirect(url_for('admin_forms'))
 
+# Personel sayfası
 @app.route('/staff')
 @login_required
 def staff():
@@ -215,6 +281,7 @@ def staff():
     conn.close()
     return render_template('staff.html', stages=stages, forms=forms)
 
+# Form gönderme
 @app.route('/submit_form', methods=['POST'])
 @login_required
 def submit_form():
@@ -242,6 +309,11 @@ def submit_form():
     flash("Form submitted successfully")
     return redirect(url_for('staff'))
 
+# Veritabanını başlat (Render'da her deploy'da çalışır)
+with app.app_context():
+    init_db()
+
+# Uygulamayı Render portunda çalıştır
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))  # Render PORT ortam değişkenini kullan, yoksa 5000
-    app.run(host="0.0.0.0", port=port, debug=True)
+    port = int(os.getenv("PORT", 5000))  # Render PORT (varsayılan 10000), yoksa 5000
+    app.run(host="0.0.0.0", port=port, debug=True)  # Tüm arayüzlerde dinle
